@@ -106,6 +106,10 @@ function findLastCacheActivityTs(transcriptPath: string): number | null {
   }
 }
 
+const CACHE_HIT_RE =
+  /"(?:cache_read_input_tokens|cache_creation_input_tokens)":[1-9]/;
+const TIMESTAMP_RE = /"timestamp":"([^"]+)"/;
+
 function scanBufferForLastCacheTs(
   buf: Buffer,
   bufStartsAtFileBeginning: boolean,
@@ -117,30 +121,11 @@ function scanBufferForLastCacheTs(
   const start = bufStartsAtFileBeginning ? 0 : 1;
   for (let i = lines.length - 1; i >= start; i--) {
     const line = lines[i];
-    if (!line) continue;
-    if (
-      !line.includes("cache_read_input_tokens") &&
-      !line.includes("cache_creation_input_tokens")
-    ) {
-      continue;
-    }
-    try {
-      const obj = JSON.parse(line);
-      const u = obj?.message?.usage;
-      if (!u) continue;
-      if (
-        (u.cache_read_input_tokens || 0) > 0 ||
-        (u.cache_creation_input_tokens || 0) > 0
-      ) {
-        const ts = obj.timestamp;
-        if (typeof ts === "string") {
-          const ms = Date.parse(ts);
-          if (!Number.isNaN(ms)) return ms;
-        }
-      }
-    } catch {
-      continue;
-    }
+    if (!line || !CACHE_HIT_RE.test(line)) continue;
+    const m = TIMESTAMP_RE.exec(line);
+    if (!m) continue;
+    const ms = Date.parse(m[1]!);
+    if (!Number.isNaN(ms)) return ms;
   }
   return null;
 }
