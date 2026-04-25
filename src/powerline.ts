@@ -52,6 +52,22 @@ import {
 import { visibleLength } from "./utils/terminal";
 import { getTerminalWidth, getRawTerminalWidth } from "./utils/terminal-width";
 import { renderTuiPanel } from "./tui";
+import { statSync } from "node:fs";
+
+const CACHE_TTL_MS = 60 * 60 * 1000; // Anthropic prompt cache: 1h
+
+function computeCacheWarmth(transcriptPath: string): string | null {
+  try {
+    const ageMs = Date.now() - statSync(transcriptPath).mtimeMs;
+    if (ageMs < CACHE_TTL_MS) {
+      const min = Math.floor(ageMs / 60000);
+      return `✓${min}m`;
+    }
+    return "✗cold";
+  } catch {
+    return null;
+  }
+}
 
 interface RenderedSegment {
   type: string;
@@ -514,6 +530,7 @@ export class PowerlineRenderer {
         segment.config as ContextSegmentConfig,
         contextInfo,
         colors,
+        hookData,
       );
     }
 
@@ -615,9 +632,14 @@ export class PowerlineRenderer {
     config: ContextSegmentConfig,
     contextInfo: ContextInfo | null,
     colors: PowerlineColors,
+    hookData?: ClaudeHookData,
   ) {
     if (!this.needsSegmentInfo("context")) return null;
-    return this.segmentRenderer.renderContext(contextInfo, colors, config);
+    const seg = this.segmentRenderer.renderContext(contextInfo, colors, config);
+    if (!seg || !hookData?.transcript_path) return seg;
+    const warmth = computeCacheWarmth(hookData.transcript_path);
+    if (warmth) seg.text = `${seg.text} ${warmth}`;
+    return seg;
   }
 
   private renderMetricsSegment(
